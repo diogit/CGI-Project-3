@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<script id="vertex-shader-2" type="x-shader/x-vertex">
+const vec4 lightPosition = vec4(0.0, 0.0, 10.0, 1.0);    // in WC
+
+attribute vec4 vPosition;   // vertex position in modelling coordinates
+attribute vec4 vNormal;     // vertex normal in modelling coordinates
+
+uniform mat4 mView;         // view transformation matrix (for points)
+uniform mat4 mViewVectors;  // view transformation matrix (for vectors)
+uniform mat4 mModelView;    // model-view transformation (for points)
+uniform mat4 mNormals;      // model-view transformation (for vectors/normals)
+
+uniform mat4 mProjection;   // projection matrix
+
+varying vec3 fNormal;       // normal vector in camera space (to be interpolated)
+varying vec3 fLight;
+varying vec3 fViewer;
+
+void main(){
+    // compute position in camera frame
+    vec3 posC = (mModelView * vPosition).xyz;
+    
+    // compute normal in camera frame
+    fNormal = (mNormals * vNormal).xyz;
+
+    // compute light vector in camera frame
+    if(lightPosition.w == 0.0) 
+        fLight = normalize((mViewVectors * lightPosition).xyz);
+    else 
+        fLight = normalize((mView*lightPosition).xyz - posC);
+    
+    // Compute the view vector
+    // fViewer = -fPosition; // Perspective projection
+    fViewer = vec3(0,0,1); // Parallel projection only
+
+    // Compute vertex position in clip coordinates (as usual)
+    gl_Position = mProjection * mModelView * vPosition;
+
+    // make correction for left handed system of clip space
+    //gl_Position.z = -gl_Position.z;
+}
+</script>
+<script id="fragment-shader-2" type="x-shader/x-fragment">
+precision mediump float;
+
+varying vec3 fPosition;
+varying vec3 fNormal;
+
+uniform vec3 color;
+const float shininess = 60.0;
+
+const vec3 lightAmb = vec3(0.2, 0.2, 0.2);
+const vec3 lightDif = vec3(0.5, 0.5, 0.5);
+const vec3 lightSpe = vec3(1.0, 1.0, 1.0);
+
+vec3 ambientColor = lightAmb * color;
+vec3 diffuseColor = lightDif * color;
+vec3 specularColor = lightSpe * vec3(1.0, 1.0, 1.0);
+
+varying vec3 fLight;
+varying vec3 fViewer;
+
+void main() {
+
+    vec3 L = normalize(fLight);
+    vec3 V = normalize(fViewer);
+    vec3 N = normalize(fNormal);
+   
+    // Compute the halfway vector for Phong-Blinn model
+    vec3 H = normalize(L+V);
+
+    // compute diffuse reflection, don't let the vertex be illuminated from behind...
+    float diffuseFactor = max( dot(L,N), 0.0 );
+    vec3 diffuse = diffuseFactor * diffuseColor;
+
+    // compute specular reflection
+    float specularFactor = pow(max(dot(N,H), 0.0), shininess);
+    vec3 specular = specularFactor * specularColor;
+
+    // specular reflection should be 0 if normal is pointing away from light source
+    if( dot(L,N) < 0.0 ) {
+        specular = vec3(0.0, 0.0, 0.0);
+    }
+
+    // add all 3 components from the illumination model (ambient, diffuse and specular)
+    gl_FragColor = vec4(ambientColor + diffuse + specular, 1.0);
+}
+</script>
+<script type="text/javascript" src="Common/webgl-utils.js"></script>
+<script type="text/javascript" src="Common/initShaders.js"></script>
+<script type="text/javascript" src="Common/MV.js"></script>
+<script type="text/javascript" src="Common/cube.js"></script>
+<script type="text/javascript" src="Common/sphere.js"></script>
+<script type="text/javascript" src="Common/cylinder.js"></script>
+<script type="text/javascript" src="modelling_demo.js"></script>
+<title>Modelling Demo</title>
+<style>
+html{
+    background-color: #f1f1f1;
+    cursor: default;
+}
+body{
+    margin: 5;
+    text-align: center;
+    font-family: Roboto, Arial, sans-serif;
+}
+h1,h2,p{
+    margin: 0px;
+}
+header{
+    background-color: white;
+    border: 1px solid black;
+}
+span, input{
+    cursor: help;
+}
+section{
+    background-color: white;
+    border: 1px solid black;
+    border-top: none;
+    padding: 5px;
+}
+footer{
+    background-color: white;
+    border: 1px solid black;
+    border-top: none;
+    padding: 5px;
+}
+</style>
+</head>
+<body>
+    <header>
+        <h1>Modelling Demo</h1>
+    </header>
+    <section>
+        <div id="container">
+            <canvas id="gl-canvas" width="512" height="512">
+                Oops... your browser doesn't support the HTML5 canvas element"
+            </canvas>
+        </div>
+    </section>
+    <section>
+        <h2>Projection Controls</h2>
+        <span title="[T/G] Change axonometric projection gamma angle">
+            &gamma;:
+            <input id="axo_gamma" type="range" min="-180" max="180" step="0.01"/>
+        </span>
+        <span title="[N/M] Change axonometric projection theta angle">
+            &theta;:
+            <input id="axo_theta" type="range" min="-180" max="180" step="0.01"/>
+        </span>        
+    </section>
+    <section>
+        <h2>Robot Controls</h2>
+        <span title="[Left/Right] Move robot along the x-axis">
+            x:
+            <input id="x" type="range" min="-2.5" max="2.5" step="0.01"/>
+        </span>
+        <span title="[Up/Down] Move robot along the z-axis">
+            z:
+            <input id="z" type="range" min="-2.5" max="2.5" step="0.01"/>
+        </span>
+        <span title="[Q/W] Change angle made by green cylinder">
+            &ang; Green:
+            <input id="angG" type="range" min="-180" max="180" step="0.01"/>
+        </span>
+        <span title="[Z/X] Change angle made by blue cylinder">
+            &ang; Blue:
+            <input id="angB" type="range" min="-95" max="95" step="0.01"/>
+        </span>
+        <span title="[A/S] Change angle made by yellow cylinder">
+            &ang; Yellow:
+            <input id="angY" type="range" min="-95" max="95" step="0.01"/>
+        </span>
+        <span title="[K/L] Change angle made by white cylinder">
+            &ang; White:
+            <input id="angW" type="range" min="-180" max="180" step="0.01"/>
+        </span>
+        <span title="[O/P] Change claws distance">
+            d Claw
+            <input id="dC" type="range" min="0" max="0.5" step="0.01"/>
+        </span>
+    </section>
+    <footer>
+        <b>Authors:</b> Daniel Flamino (45465), Diogo Silvério (45679)
+    </footer>
+</body>
+</html>
